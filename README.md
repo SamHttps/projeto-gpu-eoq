@@ -36,10 +36,10 @@ $$C(Q) = \underbrace{D \cdot P}_{\text{Aquisição}} + \underbrace{\frac{D}{Q} \
 
 Onde:
 
-- $D$: Demanda anual de placas de vídeo ($\text{unidades/ano}$);
-- $P$: Custo unitário do kit de componentes ($\text{R\$}$);
-- $S$: Custo fixo por pedido de importação ($\text{R\$}$);
-- $h$: Custo físico anual de armazenagem climatizada e seguro por unidade ($\text{R\$/ano}$);
+- $D$: Demanda anual de placas de vídeo (unidades/ano);
+- $P$: Custo unitário do kit de componentes (R$);
+- $S$: Custo fixo por pedido de importação (R$);
+- $h$: Custo físico anual de armazenagem climatizada e seguro por unidade (R$/ano);
 - $\theta$: Taxa anual de obsolescência tecnológica e custo de oportunidade do capital ($\text{a.a.}$).
 
 ### 3.3. Critérios de Otimização (1ª e 2ª Derivadas)
