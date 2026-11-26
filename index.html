@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Amazonas GPU Tech | Otimização Logística EOQ</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen font-sans antialiased">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    function App() {
+      const [form, setForm] = useState({
+        cenario_nome: "Lote Kits RTX-5080 (GPU + 16GB GDDR7)",
+        demanda_anual: 24000,
+        custo_unitario: 2200.00,
+        custo_pedido: 18500.00,
+        custo_armazenagem: 45.00,
+        taxa_obsolescencia: 0.25,
+        q_min: 200,
+        q_max: 2500
+      });
+
+      const [resultado, setResultado] = useState(null);
+      const [historico, setHistorico] = useState([]);
+      const [loading, setLoading] = useState(false);
+      const [erro, setErro] = useState(null);
+      const chartRef = useRef(null);
+      const chartInstance = useRef(null);
+
+      const carregarHistorico = async () => {
+        try {
+          const resp = await fetch("/api/historico");
+          if (resp.ok) {
+            const data = await resp.json();
+            setHistorico(data);
+          }
+        } catch (e) {
+          console.error("Erro ao carregar histórico:", e);
+        }
+      };
+
+      const executarOtimizacao = async (e) => {
+        if (e) e.preventDefault();
+        setLoading(true);
+        setErro(null);
+
+        try {
+          const payload = {
+            cenario_nome: form.cenario_nome,
+            demanda_anual: parseFloat(form.demanda_anual),
+            custo_unitario: parseFloat(form.custo_unitario),
+            custo_pedido: parseFloat(form.custo_pedido),
+            custo_armazenagem: parseFloat(form.custo_armazenagem),
+            taxa_obsolescencia: parseFloat(form.taxa_obsolescencia),
+            q_min: parseFloat(form.q_min),
+            q_max: parseFloat(form.q_max)
+          };
+
+          const resp = await fetch("/api/otimizar", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+          });
+
+          const data = await resp.json();
+          if (!resp.ok) {
+            throw new Error(data.detail || "Erro ao calcular otimização.");
+          }
+
+          setResultado(data);
+          carregarHistorico();
+        } catch (err) {
+          setErro(err.message);
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      const deletarRegistro = async (id) => {
+        try {
+          const resp = await fetch(`/api/historico/${id}`, { method: "DELETE" });
+          if (resp.ok) carregarHistorico();
+        } catch (e) {
+          console.error(e);
+        }
+      };
+
+      useEffect(() => {
+        executarOtimizacao();
+      }, []);
+
+      useEffect(() => {
+        if (resultado && window.MathJax) {
+          window.MathJax.typesetPromise && window.MathJax.typesetPromise();
+        }
+        if (resultado && chartRef.current) {
+          if (chartInstance.current) {
+            chartInstance.current.destroy();
+          }
+          const ctx = chartRef.current.getContext("2d");
+          const qVals = resultado.grafico.q_values;
+          const cVals = resultado.grafico.c_values;
+          const qOpt = resultado.resultados.q_otimo_recomendado;
+          const cOpt = resultado.resultados.custo_total_otimo;
+
+          chartInstance.current = new Chart(ctx, {
+            type: "line",
+            data: {
+              labels: qVals.map(v => Math.round(v)),
+              datasets: [
+                {
+                  label: "Custo Total Anual C(Q) [R$]",
+                  data: cVals,
+                  borderColor: "#10b981",
+                  backgroundColor: "rgba(16, 185, 129, 0.12)",
+                  borderWidth: 2.5,
+                  tension: 0.3,
+                  fill: true,
+                  pointRadius: 0
+                },
+                {
+                  label: `Ponto Ótimo Q* = ${Math.round(qOpt)} unid`,
+                  data: qVals.map(q => Math.abs(q - qOpt) < (qVals[1] - qVals[0]) ? cOpt : null),
+                  borderColor: "#f59e0b",
+                  backgroundColor: "#f59e0b",
+                  pointRadius: 8,
+                  pointHoverRadius: 10,
+                  showLine: false
+                }
+              ]
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: {
+                legend: { labels: { color: "#e2e8f0" } },
+                tooltip: {
+                  callbacks: {
+                    label: (ctx) => `R$ ${Number(ctx.raw).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`
+                  }
+                }
+              },
+              scales: {
+                x: {
+                  title: { display: true, text: "Tamanho do Lote de Compra (Q)", color: "#94a3b8" },
+                  ticks: { color: "#94a3b8", maxTicksLimit: 10 },
+                  grid: { color: "rgba(148, 163, 184, 0.1)" }
+                },
+                y: {
+                  title: { display: true, text: "Custo Total Anual (R$)", color: "#94a3b8" },
+                  ticks: {
+                    color: "#94a3b8",
+                    callback: (v) => "R$ " + (v / 1000000).toFixed(2) + "M"
+                  },
+                  grid: { color: "rgba(148, 163, 184, 0.1)" }
+                }
+              }
+            }
+          });
+        }
+      }, [resultado]);
+
+      const formatBRL = (val) =>
+        Number(val).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+
+      return (
+        <div className="max-w-7xl mx-auto px-4 py-8">
+          {/* Header */}
+          <header className="flex flex-col md:flex-row md:items-center md:justify-between border-b border-slate-800 pb-6 mb-8 gap-4">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="px-2.5 py-0.5 text-xs font-semibold bg-emerald-500/20 text-emerald-400 rounded-full border border-emerald-500/30">
+                  Cálculo Diferencial + SymPy
+                </span>
+                <span className="text-xs text-slate-400">CESUPA • Ciência da Computação</span>
+              </div>
+              <h1 className="text-3xl font-bold text-white mt-2">
+                Amazonas GPU Tech — Otimizador de Lote Econômico (EOQ)
+              </h1>
+              <p className="text-slate-400 text-sm mt-1">
+                Persona: <strong>Carlos Mendes</strong> (Gerente de Supply Chain) • Minimização de Custos Logísticos e Obsolescência de Semicondutores
+              </p>
+            </div>
+            <div className="flex gap-3">
+              <a
+                href="/api/exportar-csv"
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-medium rounded-lg border border-slate-700 transition"
+              >
+                Exportar CSV
+              </a>
+            </div>
+          </header>
+
+          {erro && (
+            <div className="mb-6 p-4 bg-red-950/70 border border-red-500/50 text-red-200 rounded-xl text-sm">
+              <strong>Erro de Validação:</strong> {erro}
+            </div>
+          )}
+
+          {/* Grid Principal */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+            {/* Coluna Esquerda: Formulário de Parâmetros */}
+            <div className="lg:col-span-4 bg-slate-900/90 border border-slate-800 rounded-2xl p-6 shadow-xl">
+              <h2 className="text-lg font-semibold text-white mb-4">Parâmetros da Cadeia de Suprimentos</h2>
+              <form onSubmit={executarOtimizacao} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1">Identificação do Cenário</label>
+                  <input
+                    type="text"
+                    required
+                    value={form.cenario_nome}
+                    onChange={(e) => setForm({ ...form, cenario_nome: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-400 mb-1">Demanda Anual (D)</label>
+                    <input
+                      type="number"
+                      step="1"
+                      required
+                      value={form.demanda_anual}
+                      onChange={(e) => setForm({ ...form, demanda_anual: e.target.value })}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-400 mb-1">Custo Kit GPU (P) [R$]</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      required
+                      value={form.custo_unitario}
+                      onChange={(e) => setForm({ ...form, custo_unitario: e.target.value })}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-400 mb-1">Custo por Pedido (S) [R$]</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      required
+                      value={form.custo_pedido}
+                      onChange={(e) => setForm({ ...form, custo_pedido: e.target.value })}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-400 mb-1">Armazenagem Fís. (h) [R$]</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      required
+                      value={form.custo_armazenagem}
+                      onChange={(e) => setForm({ ...form, custo_armazenagem: e.target.value })}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1">
+                    Taxa Obsolescência + Capital (θ) [ex: 0.25 = 25% a.a.]
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    required
+                    value={form.taxa_obsolescencia}
+                    onChange={(e) => setForm({ ...form, taxa_obsolescencia: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-800">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-400 mb-1">MOQ Fornecedor (Q_min)</label>
+                    <input
+                      type="number"
+                      step="1"
+                      required
+                      value={form.q_min}
+                      onChange={(e) => setForm({ ...form, q_min: e.target.value })}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-400 mb-1">Limite Cofre (Q_max)</label>
+                    <input
+                      type="number"
+                      step="1"
+                      required
+                      value={form.q_max}
+                      onChange={(e) => setForm({ ...form, q_max: e.target.value })}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+                    />
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-xl shadow-lg shadow-emerald-900/30 transition cursor-pointer"
+                >
+                  {loading ? "Calculando Derivadas..." : "Calcular Lote Ótimo (SymPy)"}
+                </button>
+              </form>
+            </div>
+
+            {/* Coluna Direita: Resultados, Gráfico e Justificativa */}
+            <div className="lg:col-span-8 space-y-6">
+              {resultado && (
+                <>
+                  {/* KPIs Principais */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div className="bg-slate-900 border border-emerald-500/40 rounded-2xl p-5">
+                      <span className="text-xs uppercase tracking-wider text-emerald-400 font-semibold">
+                        Lote Ótimo Recomendado (Q*)
+                      </span>
+                      <div className="text-3xl font-bold text-white mt-1">
+                        {resultado.resultados.q_otimo_inteiro.toLocaleString("pt-BR")} <span className="text-sm font-normal text-slate-400">kits</span>
+                      </div>
+                      <p className="text-xs text-slate-400 mt-2">
+                        {resultado.resultados.pedidos_por_ano} pedidos/ano (a cada {resultado.resultados.intervalo_dias} dias)
+                      </p>
+                    </div>
+
+                    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5">
+                      <span className="text-xs uppercase tracking-wider text-slate-400 font-semibold">
+                        Custo Logístico Mínimo
+                      </span>
+                      <div className="text-2xl font-bold text-white mt-1">
+                        {formatBRL(resultado.resultados.custo_logistico_otimo)}
+                      </div>
+                      <p className="text-xs text-slate-400 mt-2">
+                        Custo Total c/ Aquisição: {formatBRL(resultado.resultados.custo_total_otimo)}
+                      </p>
+                    </div>
+
+                    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5">
+                      <span className="text-xs uppercase tracking-wider text-amber-400 font-semibold">
+                        Economia vs. Compra Mensal
+                      </span>
+                      <div className="text-2xl font-bold text-amber-400 mt-1">
+                        {formatBRL(resultado.resultados.comparacao_pedido_mensal.economia_anual_estimada)}
+                      </div>
+                      <p className="text-xs text-slate-400 mt-2">
+                        Lote mensal seria {Math.round(resultado.resultados.comparacao_pedido_mensal.q_mensal)} kits
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Gráfico da Função Objetivo */}
+                  <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="text-base font-semibold text-white">Curva de Custo Total Anual C(Q) e Ponto de Mínimo</h3>
+                      <span className="text-xs px-2.5 py-1 bg-slate-800 text-slate-300 rounded-md">
+                        {resultado.resultados.status_fronteira}
+                      </span>
+                    </div>
+                    <div className="h-64">
+                      <canvas ref={chartRef}></canvas>
+                    </div>
+                  </div>
+
+                  {/* Seção Obrigatória: Como a Solução foi Escolhida */}
+                  <div className="bg-slate-900 border border-indigo-500/30 rounded-2xl p-6">
+                    <h3 className="text-lg font-bold text-indigo-300 mb-3">
+                      Como a Solução foi Escolhida (Justificativa Matemática via SymPy)
+                    </h3>
+                    <div className="space-y-3 text-sm text-slate-300">
+                      <p>
+                        <strong>1. Função Objetivo Modelada:</strong> O custo total anual combina aquisição, frete/aduana por pedido e custo de armazenagem somado à perda por obsolescência tecnológica:
+                      </p>
+                      <div className="bg-slate-950 p-3 rounded-lg border border-slate-800 overflow-x-auto text-center">
+                        {`$$C(Q) = ${resultado.equacoes_latex.funcao_objetivo}$$`}
+                      </div>
+
+                      <p>
+                        <strong>2. Critério da Primeira Derivada (Ponto Crítico):</strong> Igualando a taxa de variação do custo a zero ($C'(Q) = 0$), o motor simbólico isola o ponto estacionário:
+                      </p>
+                      <div className="bg-slate-950 p-3 rounded-lg border border-slate-800 overflow-x-auto text-center">
+                        {`$$C'(Q) = ${resultado.equacoes_latex.primeira_derivada} = 0 \\implies Q_{crítico} = ${resultado.resultados.q_critico_irrestrito}$$`}
+                      </div>
+
+                      <p>
+                        <strong>3. Critério da Segunda Derivada (Teste de Concavidade):</strong> Avaliando $C''(Q)$ no ponto crítico, obtemos:
+                      </p>
+                      <div className="bg-slate-950 p-3 rounded-lg border border-slate-800 overflow-x-auto text-center">
+                        {`$$C''(Q) = ${resultado.equacoes_latex.segunda_derivada} \\implies C''(${resultado.resultados.q_critico_irrestrito}) = ${resultado.resultados.segunda_derivada_valor} > 0$$`}
+                      </div>
+                      <p className="text-emerald-400 font-medium">
+                        Conclusão: {resultado.resultados.concavidade}. Avaliação de fronteiras no domínio [{form.q_min}, {form.q_max}]: C(Q_min) = {formatBRL(resultado.resultados.custo_q_min)} | C(Q_max) = {formatBRL(resultado.resultados.custo_q_max)}.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Tabela de Análise de Sensibilidade */}
+                  <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+                    <h3 className="text-base font-semibold text-white mb-3">
+                      Análise de Sensibilidade (Variação na Taxa de Obsolescência θ)
+                    </h3>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm text-left text-slate-300">
+                        <thead className="text-xs uppercase bg-slate-950 text-slate-400">
+                          <tr>
+                            <th className="px-4 py-2">Cenário θ</th>
+                            <th className="px-4 py-2">Taxa Aplicada (a.a.)</th>
+                            <th className="px-4 py-2">Lote Ótimo (Q*)</th>
+                            <th className="px-4 py-2">Custo Total Anual</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {resultado.sensibilidade.map((item, idx) => (
+                            <tr key={idx} className="border-b border-slate-800">
+                              <td className="px-4 py-2 font-medium">
+                                {item.variacao_theta_pct === 0 ? "Base (0%)" : `${item.variacao_theta_pct > 0 ? "+" : ""}${item.variacao_theta_pct}%`}
+                              </td>
+                              <td className="px-4 py-2">{item.theta_aplicado}%</td>
+                              <td className="px-4 py-2 text-emerald-400 font-semibold">{Math.round(item.q_otimo)} kits</td>
+                              <td className="px-4 py-2">{formatBRL(item.custo_total)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Histórico Persistido no SQLite */}
+          <div className="mt-10 bg-slate-900 border border-slate-800 rounded-2xl p-6">
+            <h3 className="text-lg font-semibold text-white mb-4">Histórico de Decisões Salvas (SQLite)</h3>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm text-left text-slate-300">
+                <thead className="text-xs uppercase bg-slate-950 text-slate-400">
+                  <tr>
+                    <th className="px-4 py-3">ID</th>
+                    <th className="px-4 py-3">Data/Hora</th>
+                    <th className="px-4 py-3">Cenário</th>
+                    <th className="px-4 py-3">Demanda (D)</th>
+                    <th className="px-4 py-3">Q* Recomendado</th>
+                    <th className="px-4 py-3">Custo Logístico</th>
+                    <th className="px-4 py-3">Status Domínio</th>
+                    <th className="px-4 py-3">Ação</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {historico.map((row) => (
+                    <tr key={row.id} className="border-b border-slate-800 hover:bg-slate-800/40">
+                      <td className="px-4 py-3">#{row.id}</td>
+                      <td className="px-4 py-3 text-xs text-slate-400">{row.data_hora}</td>
+                      <td className="px-4 py-3 font-medium text-white">{row.cenario_nome}</td>
+                      <td className="px-4 py-3">{row.demanda_anual.toLocaleString("pt-BR")}</td>
+                      <td className="px-4 py-3 text-emerald-400 font-bold">{Math.round(row.q_otimo_recomendado)} unid</td>
+                      <td className="px-4 py-3">{formatBRL(row.custo_logistico_otimo)}</td>
+                      <td className="px-4 py-3 text-xs">{row.status_fronteira}</td>
+                      <td className="px-4 py-3">
+                        <button
+                          onClick={() => deletarRegistro(row.id)}
+                          className="text-xs text-red-400 hover:text-red-300 underline cursor-pointer"
+                        >
+                          Excluir
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById("root"));
+    root.render(<App />);
+  </script>
+</body>
+</html>
+'''

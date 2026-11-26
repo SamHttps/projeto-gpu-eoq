@@ -1,0 +1,67 @@
+req_txt = """fastapi==0.115.0
+uvicorn==0.30.6
+sympy==1.13.3
+numpy==2.1.1
+pydantic==2.9.2
+"""
+with open("requirements.txt", "w", encoding="utf-8") as f:
+    f.write(req_txt.strip() + "\n")
+
+exp_sympy = '''"""
+Script independente para reprodução dos experimentos simbólicos com SymPy
+Disciplina: Resolução Diferencial de Problemas - CESUPA
+"""
+import sympy as sp
+
+def reproduzir_experimento():
+    # 1. Definição das variáveis simbólicas
+    Q, D, P, S, h, theta = sp.symbols('Q D P S h theta', positive=True, real=True)
+
+    # 2. Função Objetivo: Custo Total Anual C(Q)
+    C = D * P + (D / Q) * S + (Q / 2) * (h + theta * P)
+    print("Função Objetivo C(Q):")
+    sp.pprint(C)
+    print("-" * 50)
+
+    # 3. Primeira Derivada C'(Q) e Ponto Crítico
+    dC = sp.diff(C, Q)
+    print("Primeira Derivada C'(Q):")
+    sp.pprint(dC)
+
+    q_star = sp.solve(sp.Eq(dC, 0), Q)[0]
+    print("\\nFórmula Analítica do Lote Ótimo Q*:")
+    sp.pprint(q_star)
+    print("-" * 50)
+
+    # 4. Segunda Derivada C''(Q) (Teste de Concavidade)
+    d2C = sp.diff(dC, Q)
+    print("Segunda Derivada C''(Q):")
+    sp.pprint(d2C)
+    print("-" * 50)
+
+    # 5. Instanciação com dados realísticos da Amazonas GPU Tech (RTX-5080)
+    valores = {
+        D: 24000,     # 24.000 placas/ano
+        P: 2200.00,   # R$ 2.200,00 por kit (GPU Die + 16GB GDDR7)
+        S: 18500.00,  # R$ 18.500,00 por pedido de importação (frete aéreo + aduana)
+        h: 45.00,     # R$ 45,00/ano armazenagem climatizada e seguro por kit
+        theta: 0.25   # 25% ao ano (obsolescência tecnológica + custo de capital)
+    }
+
+    q_num = float(q_star.subs(valores))
+    c_num = float(C.subs(valores).subs(Q, q_num))
+    d2c_num = float(d2C.subs(valores).subs(Q, q_num))
+
+    print(f"Resultado Numérico (Cenário Base):")
+    print(f"-> Lote Ótimo Q* = {q_num:.2f} kits")
+    print(f"-> Custo Total Anual Mínimo C(Q*) = R$ {c_num:,.2f}")
+    print(f"-> Valor de C''(Q*) = {d2c_num:.6f} (> 0, confirma Mínimo Global)")
+
+if __name__ == "__main__":
+    reproduzir_experimento()
+'''
+
+with open("experimento_sympy.py", "w", encoding="utf-8") as f:
+    f.write(exp_sympy.strip() + "\n")
+
+print("Arquivos app.py, index.html, requirements.txt e experimento_sympy.py gerados com sucesso!")
