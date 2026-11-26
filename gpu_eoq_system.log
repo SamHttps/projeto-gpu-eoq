@@ -1,0 +1,5 @@
+2026-11-25 22:43:13,457 [INFO] AmazonasGPUSupplyChain: Banco de dados SQLite inicializado com sucesso.
+2026-11-25 22:43:21,749 [INFO] AmazonasGPUSupplyChain: Iniciando otimização para cenário: Lote Kits RTX-5080 (GPU + 16GB GDDR7)
+2026-11-25 22:43:22,859 [INFO] AmazonasGPUSupplyChain: Simulação ID=1 concluída. Q*=1221.65
+2026-11-25 22:44:12,689 [INFO] AmazonasGPUSupplyChain: Iniciando otimização para cenário: Lote Kits RX-5700 (GPU + 16GB GDDR6)
+2026-11-25 22:44:12,758 [INFO] AmazonasGPUSupplyChain: Simulação ID=2 concluída. Q*=635.11
